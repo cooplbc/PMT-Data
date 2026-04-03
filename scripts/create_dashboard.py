@@ -45,7 +45,6 @@ def make_panel(x, y, w, h, title, esql):
     return {
         "type": "lens",
         "panelIndex": panel_id,
-        "title": title,
         "gridData": {"x": x, "y": y, "w": w, "h": h, "i": panel_id},
         "embeddableConfig": {
             "enhancements": {"dynamicActions": {"events": []}},

@@ -136,7 +136,9 @@ def build_dashboard():
                 "useMargins": True, "syncColors": False, "hidePanelTitles": False
             }),
             "version": 1,
-            "timeRestore": False,
+            "timeRestore": True,
+            "timeFrom": "2025-01-01T00:00:00.000Z",
+            "timeTo": "now",
             "kibanaSavedObjectMeta": {
                 "searchSourceJSON": json.dumps({
                     "query": {"query": "", "language": "kuery"},

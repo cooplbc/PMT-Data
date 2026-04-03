@@ -1,7 +1,8 @@
 """
-Generates the PMT Live Reporting overview dashboard and imports it into Kibana 9.x.
+Generates the PMT Live Reporting overview dashboard and imports it into Kibana serverless.
 
-Creates a single dashboard with 5 Lens metric panels (by-value / panelConfig format):
+Creates a single dashboard with 5 Lens metric panels using ES|QL (textBased datasource),
+which is the supported approach for Kibana serverless:
   - Total RFPs Submitted
   - Total RFIs
   - Total Vendor Questionnaires
@@ -22,121 +23,95 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_KEY    = os.environ["ELASTICSEARCH_API_KEY"]
-KIBANA_URL = os.environ["KIBANA_URL"].rstrip("/")
-
-# Use the pre-existing pmt_live_reporting data view
-DATAVIEW_ID  = "48c80059-b48d-41a6-948e-3d1aa8284356"
+API_KEY      = os.environ["ELASTICSEARCH_API_KEY"]
+KIBANA_URL   = os.environ["KIBANA_URL"].rstrip("/")
 DASHBOARD_ID = "pmt-live-reporting-overview"
 NDJSON_PATH  = "dashboards/pmt_overview_dashboard.ndjson"
+INDEX        = "pmt_live_reporting"
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Panel builder — ES|QL / textBased datasource
 # ---------------------------------------------------------------------------
 
-def make_filter(field, value):
+def make_panel(panel_index, x, y, w, h, title, esql):
+    """Build a Kibana serverless Lens metric panel using an ES|QL query."""
     return {
-        "meta": {
-            "alias": None, "disabled": False, "negate": False,
-            "key": field, "type": "phrase", "params": {"query": value}
-        },
-        "query": {"match_phrase": {field: value}}
-    }
-
-
-def make_count_col(label):
-    return {
-        "label": label, "dataType": "number", "operationType": "count",
-        "isBucketed": False, "scale": "ratio", "sourceField": "___records___", "params": {}
-    }
-
-
-def make_sum_col(label, field):
-    return {
-        "label": label, "dataType": "number", "operationType": "sum",
-        "isBucketed": False, "scale": "ratio", "sourceField": field,
-        "params": {"format": {"id": "currency", "params": {"decimals": 0}}}
-    }
-
-
-def make_panel(panel_index, x, y, w, h, title, col, filters):
-    """Build a Kibana 9.x by-value Lens panel.
-
-    Kibana 9.x requires the lens state to be embedded directly inside
-    embeddableConfig (flat, not nested under .attributes). The panelConfig
-    key is stripped during saved-object migration.
-    """
-    ref_name = f"{panel_index}:indexpattern-datasource-layer-layer1"
-    panel = {
         "version": "9.0.0",
         "type": "lens",
         "gridData": {"x": x, "y": y, "w": w, "h": h, "i": panel_index},
         "panelIndex": panel_index,
+        "title": title,
         "embeddableConfig": {
             "enhancements": {},
             "description": "",
             "visualizationType": "lnsMetric",
             "state": {
                 "datasourceStates": {
-                    "formBased": {
+                    "textBased": {
                         "layers": {
                             "layer1": {
-                                "columns": {"col1": col},
-                                "columnOrder": ["col1"],
-                                "incompleteColumns": {},
-                                "indexPatternId": DATAVIEW_ID,
-                                "sampling": 1
+                                "query": {"esql": esql},
+                                "columns": [
+                                    {
+                                        "columnId": "col1",
+                                        "fieldName": "result",
+                                        "meta": {"type": "number"}
+                                    }
+                                ],
+                                "index": {
+                                    "id": INDEX,
+                                    "title": INDEX,
+                                    "timeFieldName": "created_date"
+                                }
                             }
                         }
                     }
                 },
-                "filters": filters,
+                "filters": [],
                 "query": {"query": "", "language": "kuery"},
                 "visualization": {
                     "layerId": "layer1",
                     "layerType": "data",
-                    "metricAccessor": "col1",
-                    "subtitle": "",
-                    "titlesTextAlign": "left",
-                    "valuesTextAlign": "left",
-                    "iconAlign": "left",
-                    "valueFontMode": "default"
+                    "metricAccessor": "col1"
                 },
                 "internalReferences": [],
                 "adHocDataViews": {}
             },
-            "references": [
-                {"type": "index-pattern", "id": DATAVIEW_ID, "name": ref_name}
-            ]
-        },
-        "title": title
+            "references": []
+        }
     }
-    return panel, ref_name
+
+
+# ---------------------------------------------------------------------------
+# Panel definitions
+# ---------------------------------------------------------------------------
+
+PANEL_DEFS = [
+    # (panel_index, x,  y,   w,  h,  title,                        esql)
+    ("p1",  0,  0,  6, 8, "Total RFPs Submitted",
+     f'FROM {INDEX} | WHERE request_type == "RFP" | STATS result = COUNT(*)'),
+
+    ("p2",  6,  0,  6, 8, "Total RFIs",
+     f'FROM {INDEX} | WHERE request_type == "RFI" | STATS result = COUNT(*)'),
+
+    ("p3", 12,  0,  6, 8, "Total Vendor Questionnaires",
+     f'FROM {INDEX} | WHERE request_type == "Vendor Questionaire" | STATS result = COUNT(*)'),
+
+    ("p4", 18,  0,  6, 8, "Total Projects",
+     f'FROM {INDEX} | STATS result = COUNT(*)'),
+
+    ("p5",  0,  8, 24, 8, "Total Revenue Won",
+     f'FROM {INDEX} | WHERE status == "Closed" | STATS result = SUM(acv_converted)'),
+]
 
 
 # ---------------------------------------------------------------------------
 # Build dashboard
 # ---------------------------------------------------------------------------
 
-PANEL_DEFS = [
-    # (panel_index, x,  y,  w,  h,  title,                        column,                                        filters)
-    ("p1",  0,  0,  6, 8, "Total RFPs Submitted",        make_count_col("Total RFPs"),              [make_filter("request_type", "RFP")]),
-    ("p2",  6,  0,  6, 8, "Total RFIs",                  make_count_col("Total RFIs"),              [make_filter("request_type", "RFI")]),
-    ("p3", 12,  0,  6, 8, "Total Vendor Questionnaires", make_count_col("Total Vendor Q"),          [make_filter("request_type", "Vendor Questionaire")]),
-    ("p4", 18,  0,  6, 8, "Total Projects",              make_count_col("Total Projects"),          []),
-    ("p5",  0,  8, 24, 8, "Total Revenue Won",           make_sum_col("Total Revenue Won", "acv_converted"), [make_filter("status", "Closed")]),
-]
-
-
 def build_dashboard():
-    panels = []
-    references = []
-
-    for args in PANEL_DEFS:
-        panel, ref_name = make_panel(*args)
-        panels.append(panel)
-        references.append({"type": "index-pattern", "id": DATAVIEW_ID, "name": ref_name})
+    panels = [make_panel(*args) for args in PANEL_DEFS]
 
     return {
         "type": "dashboard",
@@ -149,9 +124,7 @@ def build_dashboard():
                 "useMargins": True, "syncColors": False, "hidePanelTitles": False
             }),
             "version": 1,
-            "timeRestore": True,
-            "timeFrom": "2025-01-01T00:00:00.000Z",
-            "timeTo": "now",
+            "timeRestore": False,
             "kibanaSavedObjectMeta": {
                 "searchSourceJSON": json.dumps({
                     "query": {"query": "", "language": "kuery"},
@@ -159,7 +132,7 @@ def build_dashboard():
                 })
             }
         },
-        "references": references,
+        "references": [],
         "managed": False
     }
 

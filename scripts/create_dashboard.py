@@ -1,15 +1,13 @@
 """
 Generates the PMT Live Reporting overview dashboard and imports it into Kibana 9.3.1.
 
-Creates a single dashboard with 5 Lens metric panels using ES|QL.
-Panel format reverse-engineered from manually-created Kibana 9.3.1 panels.
-
 Panels:
-  - Total RFPs Submitted
-  - Total RFIs
-  - Total Vendor Questionnaires
-  - Total Projects
-  - Total Revenue Won  (sum of acv_converted where status = Closed)
+  - Total RFPs Submitted         (ES|QL metric, textBased)
+  - Total RFIs                   (ES|QL metric, textBased)
+  - Total Vendor Questionnaires  (ES|QL metric, textBased)
+  - Total Projects               (ES|QL metric, textBased)
+  - Total Revenue Won            (ES|QL metric, textBased)
+  - ACV Revenue by Territory     (bar chart, formBased, stage = 8 - Closed Won)
 
 Usage:
     python scripts/create_dashboard.py
@@ -29,6 +27,7 @@ KIBANA_URL   = os.environ["KIBANA_URL"].rstrip("/")
 DASHBOARD_ID = "pmt-live-reporting-overview"
 NDJSON_PATH  = "dashboards/pmt_overview_dashboard.ndjson"
 INDEX        = "pmt_live_reporting"
+DATAVIEW_ID  = "04a0b59e-4cec-4308-bf57-d8e6183bc4a9"  # existing Kibana data view
 
 # Kibana generates a SHA-256-based ID for ad-hoc ES|QL data views
 ADHOC_DV_ID = hashlib.sha256(INDEX.encode()).hexdigest()
@@ -111,6 +110,110 @@ def make_panel(x, y, w, h, title, esql):
 
 
 # ---------------------------------------------------------------------------
+# Bar chart panel builder — formBased datasource (Kibana 9.3.1 native format)
+# ---------------------------------------------------------------------------
+
+def make_bar_panel(x, y, w, h, title, x_field, x_label, y_field, y_label, filters=None):
+    """Build a Kibana 9.3.1 bar chart panel using formBased datasource."""
+    panel_id = str(uuid.uuid4())
+    layer_id = str(uuid.uuid4())
+    x_col_id = str(uuid.uuid4())
+    y_col_id = str(uuid.uuid4())
+
+    return {
+        "type": "lens",
+        "panelIndex": panel_id,
+        "gridData": {"x": x, "y": y, "w": w, "h": h, "i": panel_id},
+        "embeddableConfig": {
+            "enhancements": {"dynamicActions": {"events": []}},
+            "syncColors": False,
+            "syncCursor": True,
+            "syncTooltips": False,
+            "filters": [],
+            "query": {"query": "", "language": "kuery"},
+            "attributes": {
+                "title": title,
+                "visualizationType": "lnsXY",
+                "type": "lens",
+                "references": [
+                    {"type": "index-pattern", "id": DATAVIEW_ID,
+                     "name": f"indexpattern-datasource-layer-{layer_id}"}
+                ],
+                "state": {
+                    "visualization": {
+                        "legend": {"isVisible": True, "position": "right"},
+                        "valueLabels": "hide",
+                        "preferredSeriesType": "bar",
+                        "layers": [{
+                            "layerId": layer_id,
+                            "accessors": [y_col_id],
+                            "position": "top",
+                            "seriesType": "bar",
+                            "showGridlines": False,
+                            "layerType": "data",
+                            "xAccessor": x_col_id
+                        }]
+                    },
+                    "query": {"query": "", "language": "kuery"},
+                    "filters": filters or [],
+                    "datasourceStates": {
+                        "formBased": {
+                            "layers": {
+                                layer_id: {
+                                    "columns": {
+                                        x_col_id: {
+                                            "label": x_label,
+                                            "dataType": "string",
+                                            "operationType": "terms",
+                                            "sourceField": x_field,
+                                            "isBucketed": True,
+                                            "params": {
+                                                "size": 20,
+                                                "orderBy": {"type": "column", "columnId": y_col_id},
+                                                "orderDirection": "desc",
+                                                "otherBucket": False,
+                                                "missingBucket": False,
+                                                "parentFormat": {"id": "terms"},
+                                                "include": [], "exclude": [],
+                                                "includeIsRegex": False,
+                                                "excludeIsRegex": False
+                                            },
+                                            "customLabel": True
+                                        },
+                                        y_col_id: {
+                                            "label": y_label,
+                                            "dataType": "number",
+                                            "operationType": "sum",
+                                            "sourceField": y_field,
+                                            "isBucketed": False,
+                                            "params": {"emptyAsNull": True},
+                                            "customLabel": True
+                                        }
+                                    },
+                                    "columnOrder": [x_col_id, y_col_id],
+                                    "sampling": 1,
+                                    "ignoreGlobalFilters": False,
+                                    "incompleteColumns": {},
+                                    "indexPatternId": DATAVIEW_ID
+                                }
+                            },
+                            "currentIndexPatternId": DATAVIEW_ID
+                        },
+                        "textBased": {
+                            "layers": {},
+                            "indexPatternRefs": [{"id": DATAVIEW_ID, "title": INDEX, "timeField": ""}]
+                        }
+                    },
+                    "internalReferences": [],
+                    "adHocDataViews": {}
+                },
+                "version": 1
+            }
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
 # Panel definitions
 # ---------------------------------------------------------------------------
 
@@ -136,8 +239,22 @@ PANEL_DEFS = [
 # Build + save + import
 # ---------------------------------------------------------------------------
 
+CLOSED_WON_FILTER = [{
+    "meta": {"alias": None, "disabled": False, "negate": False,
+             "key": "stage", "type": "phrase", "params": {"query": "8 - Closed Won"}},
+    "query": {"match_phrase": {"stage": "8 - Closed Won"}}
+}]
+
+
 def build_dashboard():
     panels = [make_panel(*args) for args in PANEL_DEFS]
+    panels.append(make_bar_panel(
+        0, 16, 48, 15,
+        "ACV Revenue by Territory (Closed Won)",
+        x_field="territory_level_1", x_label="Territory",
+        y_field="acv_converted",     y_label="ACV Revenue",
+        filters=CLOSED_WON_FILTER
+    ))
     return {
         "type": "dashboard",
         "id": DASHBOARD_ID,

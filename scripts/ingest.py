@@ -15,7 +15,7 @@ from elasticsearch.helpers import bulk
 load_dotenv()
 
 INDEX_NAME = "pmt_live_reporting"
-CSV_FILE = "PMT_Live_Reporting-YTD_Projects.csv"
+CSV_FILE = "data/PMT_Live_Reporting-YTD_Projects.csv"
 BATCH_SIZE = 500
 
 # Map CSV column names to clean snake_case field names

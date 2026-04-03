@@ -84,7 +84,9 @@ def make_panel(panel_index, x, y, w, h, title, col, filters):
                             "layer1": {
                                 "columns": {"col1": col},
                                 "columnOrder": ["col1"],
-                                "incompleteColumns": {}
+                                "incompleteColumns": {},
+                                "indexPatternId": DATAVIEW_ID,
+                                "sampling": 1
                             }
                         }
                     }
@@ -94,7 +96,12 @@ def make_panel(panel_index, x, y, w, h, title, col, filters):
                 "visualization": {
                     "layerId": "layer1",
                     "layerType": "data",
-                    "metricAccessor": "col1"
+                    "metricAccessor": "col1",
+                    "subtitle": "",
+                    "titlesTextAlign": "left",
+                    "valuesTextAlign": "left",
+                    "iconAlign": "left",
+                    "valueFontMode": "default"
                 },
                 "internalReferences": [],
                 "adHocDataViews": {}

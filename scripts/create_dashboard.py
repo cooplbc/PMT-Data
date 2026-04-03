@@ -145,7 +145,7 @@ def build_dashboard():
             "title": "PMT Live Reporting Overview",
             "description": "YTD metrics: RFPs, RFIs, Vendor Questionnaires, Total Projects, Revenue Won",
             "panelsJSON": json.dumps(panels),
-            "optionsJSON": json.dumps({"useMargins": True, "syncColors": False, "hidePanelTitles": False}),
+            "optionsJSON": json.dumps({"useMargins": True, "syncColors": False, "hidePanelTitles": True}),
             "version": 1,
             "timeRestore": False,
             "kibanaSavedObjectMeta": {

@@ -61,15 +61,20 @@ def make_sum_col(label, field):
 
 
 def make_panel(panel_index, x, y, w, h, title, col, filters):
-    """Build a Kibana 9.x by-value Lens panel using panelConfig format."""
+    """Build a Kibana 9.x by-value Lens panel.
+
+    Kibana 9.x requires the lens state to be embedded directly inside
+    embeddableConfig (flat, not nested under .attributes). The panelConfig
+    key is stripped during saved-object migration.
+    """
     ref_name = f"{panel_index}:indexpattern-datasource-layer-layer1"
     panel = {
         "version": "9.0.0",
         "type": "lens",
         "gridData": {"x": x, "y": y, "w": w, "h": h, "i": panel_index},
         "panelIndex": panel_index,
-        "panelConfig": {
-            "title": title,
+        "embeddableConfig": {
+            "enhancements": {},
             "description": "",
             "visualizationType": "lnsMetric",
             "state": {
@@ -97,7 +102,8 @@ def make_panel(panel_index, x, y, w, h, title, col, filters):
             "references": [
                 {"type": "index-pattern", "id": DATAVIEW_ID, "name": ref_name}
             ]
-        }
+        },
+        "title": title
     }
     return panel, ref_name
 

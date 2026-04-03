@@ -1,24 +1,25 @@
 """
-Generates the PMT Live Reporting overview dashboard and imports it into Kibana serverless.
+Generates the PMT Live Reporting overview dashboard and imports it into Kibana 9.3.1.
 
-Creates a single dashboard with 5 Lens metric panels using ES|QL (textBased datasource),
-which is the supported approach for Kibana serverless:
+Creates a single dashboard with 5 Lens metric panels using ES|QL.
+Panel format reverse-engineered from manually-created Kibana 9.3.1 panels.
+
+Panels:
   - Total RFPs Submitted
   - Total RFIs
   - Total Vendor Questionnaires
   - Total Projects
   - Total Revenue Won  (sum of acv_converted where status = Closed)
 
-Also saves the NDJSON export to dashboards/pmt_overview_dashboard.ndjson
-so it can be re-imported manually via Kibana > Stack Management > Saved Objects.
-
 Usage:
     python scripts/create_dashboard.py
 """
 
+import hashlib
 import json
 import os
 import subprocess
+import uuid
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -29,56 +30,83 @@ DASHBOARD_ID = "pmt-live-reporting-overview"
 NDJSON_PATH  = "dashboards/pmt_overview_dashboard.ndjson"
 INDEX        = "pmt_live_reporting"
 
+# Kibana generates a SHA-256-based ID for ad-hoc ES|QL data views
+ADHOC_DV_ID = hashlib.sha256(INDEX.encode()).hexdigest()
+
 
 # ---------------------------------------------------------------------------
-# Panel builder — ES|QL / textBased datasource
+# Panel builder — exact format from Kibana 9.3.1 manual panel creation
 # ---------------------------------------------------------------------------
 
-def make_panel(panel_index, x, y, w, h, title, esql):
-    """Build a Kibana serverless Lens metric panel using an ES|QL query."""
+def make_panel(x, y, w, h, title, esql):
+    panel_id = str(uuid.uuid4())
+    layer_id  = str(uuid.uuid4())
+
     return {
-        "version": "9.0.0",
         "type": "lens",
-        "gridData": {"x": x, "y": y, "w": w, "h": h, "i": panel_index},
-        "panelIndex": panel_index,
+        "panelIndex": panel_id,
         "title": title,
+        "gridData": {"x": x, "y": y, "w": w, "h": h, "i": panel_id},
         "embeddableConfig": {
-            "enhancements": {},
-            "description": "",
-            "visualizationType": "lnsMetric",
-            "state": {
-                "datasourceStates": {
-                    "textBased": {
-                        "layers": {
-                            "layer1": {
-                                "query": {"esql": esql},
-                                "columns": [
-                                    {
-                                        "columnId": "result",
-                                        "fieldName": "result",
-                                        "meta": {"type": "number"}
-                                    }
-                                ],
-                                "index": {
-                                    "id": INDEX,
-                                    "title": INDEX,
-                                    "timeFieldName": "created_date"
+            "enhancements": {"dynamicActions": {"events": []}},
+            "syncColors": False,
+            "syncCursor": True,
+            "syncTooltips": False,
+            "filters": [],
+            "query": {"esql": esql},
+            "attributes": {
+                "title": title,
+                "references": [],
+                "state": {
+                    "datasourceStates": {
+                        "textBased": {
+                            "layers": {
+                                layer_id: {
+                                    "index": ADHOC_DV_ID,
+                                    "query": {"esql": esql},
+                                    "columns": [
+                                        {
+                                            "columnId": "result",
+                                            "fieldName": "result",
+                                            "label": title,
+                                            "customLabel": True,
+                                            "meta": {"type": "number", "esType": "long"},
+                                            "inMetricDimension": True
+                                        }
+                                    ]
                                 }
-                            }
+                            },
+                            "indexPatternRefs": [
+                                {"id": ADHOC_DV_ID, "title": INDEX}
+                            ]
                         }
-                    }
+                    },
+                    "filters": [],
+                    "query": {"esql": esql},
+                    "visualization": {
+                        "layerId": layer_id,
+                        "layerType": "data",
+                        "metricAccessor": "result"
+                    },
+                    "adHocDataViews": {
+                        ADHOC_DV_ID: {
+                            "id": ADHOC_DV_ID,
+                            "title": INDEX,
+                            "sourceFilters": [],
+                            "type": "esql",
+                            "fieldFormats": {},
+                            "runtimeFieldMap": {},
+                            "allowNoIndex": False,
+                            "name": INDEX,
+                            "allowHidden": False,
+                            "managed": False
+                        }
+                    },
+                    "needsRefresh": False
                 },
-                "filters": [],
-                "query": {"query": "", "language": "kuery"},
-                "visualization": {
-                    "layerId": "layer1",
-                    "layerType": "data",
-                    "metricAccessor": "result"
-                },
-                "internalReferences": [],
-                "adHocDataViews": {}
-            },
-            "references": []
+                "visualizationType": "lnsMetric",
+                "version": 1
+            }
         }
     }
 
@@ -88,31 +116,29 @@ def make_panel(panel_index, x, y, w, h, title, esql):
 # ---------------------------------------------------------------------------
 
 PANEL_DEFS = [
-    # (panel_index, x,  y,   w,  h,  title,                        esql)
-    ("p1",  0,  0,  6, 8, "Total RFPs Submitted",
+    (0,  0,  6, 8, "Total RFPs Submitted",
      f'FROM {INDEX} | WHERE request_type == "RFP" | STATS result = COUNT(*)'),
 
-    ("p2",  6,  0,  6, 8, "Total RFIs",
+    (6,  0,  6, 8, "Total RFIs",
      f'FROM {INDEX} | WHERE request_type == "RFI" | STATS result = COUNT(*)'),
 
-    ("p3", 12,  0,  6, 8, "Total Vendor Questionnaires",
+    (12, 0,  6, 8, "Total Vendor Questionnaires",
      f'FROM {INDEX} | WHERE request_type == "Vendor Questionaire" | STATS result = COUNT(*)'),
 
-    ("p4", 18,  0,  6, 8, "Total Projects",
+    (18, 0,  6, 8, "Total Projects",
      f'FROM {INDEX} | STATS result = COUNT(*)'),
 
-    ("p5",  0,  8, 24, 8, "Total Revenue Won",
+    (0,  8, 24, 8, "Total Revenue Won",
      f'FROM {INDEX} | WHERE status == "Closed" | STATS result = SUM(acv_converted)'),
 ]
 
 
 # ---------------------------------------------------------------------------
-# Build dashboard
+# Build + save + import
 # ---------------------------------------------------------------------------
 
 def build_dashboard():
     panels = [make_panel(*args) for args in PANEL_DEFS]
-
     return {
         "type": "dashboard",
         "id": DASHBOARD_ID,
@@ -120,26 +146,17 @@ def build_dashboard():
             "title": "PMT Live Reporting Overview",
             "description": "YTD metrics: RFPs, RFIs, Vendor Questionnaires, Total Projects, Revenue Won",
             "panelsJSON": json.dumps(panels),
-            "optionsJSON": json.dumps({
-                "useMargins": True, "syncColors": False, "hidePanelTitles": False
-            }),
+            "optionsJSON": json.dumps({"useMargins": True, "syncColors": False, "hidePanelTitles": False}),
             "version": 1,
             "timeRestore": False,
             "kibanaSavedObjectMeta": {
-                "searchSourceJSON": json.dumps({
-                    "query": {"query": "", "language": "kuery"},
-                    "filter": []
-                })
+                "searchSourceJSON": json.dumps({"query": {"query": "", "language": "kuery"}, "filter": []})
             }
         },
         "references": [],
         "managed": False
     }
 
-
-# ---------------------------------------------------------------------------
-# Save + import
-# ---------------------------------------------------------------------------
 
 def save_ndjson(dashboard):
     with open(NDJSON_PATH, "w") as f:
@@ -149,8 +166,7 @@ def save_ndjson(dashboard):
 
 def import_to_kibana():
     result = subprocess.run([
-        "curl", "-s", "-w", "\nHTTP %{http_code}",
-        "-X", "POST",
+        "curl", "-s", "-w", "\nHTTP %{http_code}", "-X", "POST",
         f"{KIBANA_URL}/api/saved_objects/_import?overwrite=true",
         "-H", f"Authorization: ApiKey {API_KEY}",
         "-H", "kbn-xsrf: true",
@@ -158,8 +174,7 @@ def import_to_kibana():
     ], capture_output=True, text=True)
 
     lines = result.stdout.strip().split("\n")
-    body = "\n".join(lines[:-1])
-    status = lines[-1]
+    body, status = "\n".join(lines[:-1]), lines[-1]
 
     try:
         data = json.loads(body)

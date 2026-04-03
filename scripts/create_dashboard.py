@@ -54,7 +54,7 @@ def make_panel(panel_index, x, y, w, h, title, esql):
                                 "query": {"esql": esql},
                                 "columns": [
                                     {
-                                        "columnId": "col1",
+                                        "columnId": "result",
                                         "fieldName": "result",
                                         "meta": {"type": "number"}
                                     }
@@ -73,7 +73,7 @@ def make_panel(panel_index, x, y, w, h, title, esql):
                 "visualization": {
                     "layerId": "layer1",
                     "layerType": "data",
-                    "metricAccessor": "col1"
+                    "metricAccessor": "result"
                 },
                 "internalReferences": [],
                 "adHocDataViews": {}
